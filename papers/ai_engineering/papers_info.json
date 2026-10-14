@@ -1,0 +1,12 @@
+{
+  "2103.10703v1": {
+    "title": "Lessons Learned from Educating AI Engineers",
+    "authors": [
+      "Petra Heck",
+      "Gerard Schouten"
+    ],
+    "summary": "Over the past three years we have built a practice-oriented, bachelor level, educational programme for software engineers to specialize as AI engineers. The experience with this programme and the practical assignments our students execute in industry has given us valuable insights on the profession of AI engineer. In this paper we discuss our programme and the lessons learned for industry and research.",
+    "pdf_url": "https://arxiv.org/pdf/2103.10703v1",
+    "published": "2021-03-19"
+  }
+}

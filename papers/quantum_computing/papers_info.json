@@ -1,0 +1,69 @@
+{
+  "2211.02350v1": {
+    "title": "Tierkreis: A Dataflow Framework for Hybrid Quantum-Classical Computing",
+    "authors": [
+      "Seyon Sivarajah",
+      "Lukas Heidemann",
+      "Alan Lawrence",
+      "Ross Duncan"
+    ],
+    "summary": "We present Tierkreis, a higher-order dataflow graph program representation and runtime designed for compositional, quantum-classical hybrid algorithms. The design of the system is motivated by the remote nature of quantum computers, the need for hybrid algorithms to involve cloud and distributed computing, and the long-running nature of these algorithms. The graph-based representation reflects how designers reason about and visualise algorithms, and allows automatic parallelism and asynchronicity. A strong, static type system and higher-order semantics allow for high expressivity and compositionality in the program. The flexible runtime protocol enables third-party developers to add functionality using any language or environment. With Tierkreis, quantum software developers can easily build, visualise, verify, test, and debug complex hybrid workflows, and immediately deploy them to the cloud or a custom distributed environment.",
+    "pdf_url": "https://arxiv.org/pdf/2211.02350v1",
+    "published": "2022-11-04"
+  },
+  "2312.06975v1": {
+    "title": "Arbitrary Ground State Observables from Quantum Computed Moments",
+    "authors": [
+      "Harish J. Vallury",
+      "Lloyd C. L. Hollenberg"
+    ],
+    "summary": "The determination of ground state properties of quantum systems is a fundamental problem in physics and chemistry, and is considered a key application of quantum computers. A common approach is to prepare a trial ground state on the quantum computer and measure observables such as energy, but this is often limited by hardware constraints that prevent an accurate description of the target ground state. The quantum computed moments (QCM) method has proven to be remarkably useful in estimating the ground state energy of a system by computing Hamiltonian moments with respect to a suboptimal or noisy trial state. In this paper, we extend the QCM method to estimate arbitrary ground state observables of quantum systems. We present preliminary results of using QCM to determine the ground state magnetisation and spin-spin correlations of the Heisenberg model in its various forms. Our findings validate the well-established advantage of QCM over existing methods in handling suboptimal trial states and noise, extend its applicability to the estimation of more general ground state properties, and demonstrate its practical potential for solving a wide range of problems on near-term quantum hardware.",
+    "pdf_url": "https://arxiv.org/pdf/2312.06975v1",
+    "published": "2023-12-12"
+  },
+  "2403.02240v5": {
+    "title": "Quantum Computing: Vision and Challenges",
+    "authors": [
+      "Sukhpal Singh Gill",
+      "Oktay Cetinkaya",
+      "Stefano Marrone",
+      "Daniel Claudino",
+      "David Haunschild",
+      "Leon Schlote",
+      "Huaming Wu",
+      "Carlo Ottaviani",
+      "Xiaoyuan Liu",
+      "Sree Pragna Machupalli",
+      "Kamalpreet Kaur",
+      "Priyansh Arora",
+      "Ji Liu",
+      "Ahmed Farouk",
+      "Houbing Herbert Song",
+      "Steve Uhlig",
+      "Kotagiri Ramamohanarao"
+    ],
+    "summary": "The recent development of quantum computing, which uses entanglement, superposition, and other quantum fundamental concepts, can provide substantial processing advantages over traditional computing. These quantum features help solve many complex problems that cannot be solved otherwise with conventional computing methods. These problems include modeling quantum mechanics, logistics, chemical-based advances, drug design, statistical science, sustainable energy, banking, reliable communication, and quantum chemical engineering. The last few years have witnessed remarkable progress in quantum software and algorithm creation and quantum hardware research, which has significantly advanced the prospect of realizing quantum computers. It would be helpful to have comprehensive literature research on this area to grasp the current status and find outstanding problems that require considerable attention from the research community working in the quantum computing industry. To better understand quantum computing, this paper examines the foundations and vision based on current research in this area. We discuss cutting-edge developments in quantum computer hardware advancement and subsequent advances in quantum cryptography, quantum software, and high-scalability quantum computers. Many potential challenges and exciting new trends for quantum technology research and development are highlighted in this paper for a broader debate.",
+    "pdf_url": "https://arxiv.org/pdf/2403.02240v5",
+    "published": "2024-03-04"
+  },
+  "2506.15909v1": {
+    "title": "Entangling Disciplines: Causality, Entropy and Time-Travel Paradoxes on a Quantum Computer",
+    "authors": [
+      "Maria Violaris"
+    ],
+    "summary": "Merging disciplines has led to incredible learnings and breakthroughs throughout history, including the discovery of quantum computing: a cross between computation and quantum physics. In this paper, I will discuss how we can cross quantum computing with topics in fundamental physics. This leads to fruitful, interactive learning opportunities that fuse deep open physics problems with key insights about quantum information science. By outlining quantum circuit experiments that can be run on current and near-term quantum computers, I demonstrate how to help learners engage with principles in special relativity, general relativity and thermodynamics. In turn, these connections can advance their understanding of quantum computing. Learners can further explore the quantum computing activities in this paper via the Quantum Paradoxes content series of videos, blogs and code tutorials that I created with IBM Quantum.",
+    "pdf_url": "https://arxiv.org/pdf/2506.15909v1",
+    "published": "2025-06-18"
+  },
+  "2506.21988v2": {
+    "title": "Unifying communication paradigms in measurement-based delegated quantum computing",
+    "authors": [
+      "Fabian Wiesner",
+      "Jens Eisert",
+      "Anna Pappa"
+    ],
+    "summary": "Delegated quantum computing (DQC) allows clients with low quantum capabilities to outsource computations to a server hosting a quantum computer. This process is often envisioned within the measurement-based quantum computing framework, as it naturally facilitates blindness of inputs and computation. Hence, the overall process of setting up and conducting the computation encompasses a sequence of three stages: preparing the qubits, entangling the qubits to obtain the resource state, and measuring the qubits to run the computation. There are two primary approaches to distributing these stages between the client and the server that impose different constraints on cryptographic techniques and experimental implementations. In the prepare-and-send setting, the client prepares the qubits and sends them to the server, while in the receive-and-measure setting, the client receives the qubits from the server and measures them. Although these settings have been extensively studied independently, their interrelation and whether setting-dependent theoretical constraints are inevitable remain unclear. By implementing the key components of most DQC protocols in the respective missing setting, we provide a method to build prospective protocols in both settings simultaneously and to translate existing protocols from one setting into the other.",
+    "pdf_url": "https://arxiv.org/pdf/2506.21988v2",
+    "published": "2025-06-27"
+  }
+}
