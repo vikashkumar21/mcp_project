@@ -23,9 +23,9 @@ type InputSchema struct {
 
 // Tool defines a tool schema provided to the LLM.
 type Tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema InputSchema `json:"input_schema"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	InputSchema any    `json:"input_schema"`
 }
 
 // Tools provides the tool schemas passed to Anthropic Claude.

@@ -21,7 +21,7 @@ func ProcessQuery(ctx context.Context, client *AnthropicClient, query string, mo
 	}
 
 	const maxTurns = 10
-	for turn := 0; turn < maxTurns; turn++ {
+	for turn := range maxTurns {
 		response, err := client.CreateMessage(ctx, RequestPayload{
 			Model:     model,
 			MaxTokens: 2024,

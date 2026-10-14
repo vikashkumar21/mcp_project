@@ -133,7 +133,7 @@ func SearchPapers(topic string, maxResults int) ([]string, error) {
 					break
 				}
 			}
-			fmt.Printf("[Cache Fallback] arXiv API unavailable (%s). Using %d locally saved papers.\n", errMsg, len(cachedIDs))
+			fmt.Fprintf(os.Stderr, "[Cache Fallback] arXiv API unavailable (%s). Using %d locally saved papers.\n", errMsg, len(cachedIDs))
 			return cachedIDs, nil
 		}
 
@@ -202,7 +202,7 @@ func SearchPapers(topic string, maxResults int) ([]string, error) {
 		return nil, fmt.Errorf("failed to write %s: %w", filePath, err)
 	}
 
-	fmt.Printf("Results are saved in: %s\n", filePath)
+	fmt.Fprintf(os.Stderr, "Results are saved in: %s\n", filePath)
 
 	return paperIDs, nil
 }
@@ -237,13 +237,13 @@ func ExtractInfo(paperID string) string {
 
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			fmt.Printf("Error reading %s: %v\n", filePath, err)
+			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
 			continue
 		}
 
 		var papersInfo map[string]PaperInfo
 		if err := json.Unmarshal(data, &papersInfo); err != nil {
-			fmt.Printf("Error reading %s: %v\n", filePath, err)
+			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
 			continue
 		}
 
