@@ -15,27 +15,20 @@ func main() {
 	ctx := context.Background()
 	bot := chatbot.NewMCPChatBot()
 
-	// Locate research_server binary or fallback to 'go run'
-	serverCmd := "./research_server"
-	var serverArgs []string
-	if _, err := os.Stat(serverCmd); err != nil {
-		serverCmd = "go"
-		serverArgs = []string{"run", "./cmd/research_server"}
-	}
-
-	fmt.Println("Starting and connecting to Research MCP Server...")
-	if err := bot.ConnectToServer(ctx, serverCmd, serverArgs...); err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to MCP server: %v\n", err)
+	// Connect to all configured reference and custom MCP servers from server_config.json
+	fmt.Println("Connecting to MCP Servers defined in server_config.json...")
+	if err := bot.ConnectToServers(ctx, "server_config.json"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading server configuration: %v\n", err)
 		os.Exit(1)
 	}
-	defer bot.Session.Close()
+	defer bot.Cleanup()
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		fmt.Println("=================================================================")
 		fmt.Println("NOTE: ANTHROPIC_API_KEY is not set.")
 		fmt.Println("Running MCP ChatBot in SIMULATION MODE.")
-		fmt.Println("The client will invoke tools on the real MCP server subprocess!")
+		fmt.Println("The client will invoke tools across the real MCP server subprocesses!")
 		fmt.Println("To use live Claude, add your key to a .env file or export it:")
 		fmt.Println("  export ANTHROPIC_API_KEY=\"your-api-key\"")
 		fmt.Println("=================================================================")
@@ -46,8 +39,8 @@ func main() {
 		return
 	}
 
-	// Live Claude interactive session with MCP
-	fmt.Println("Connected to Anthropic Claude via MCP!")
+	// Live Claude interactive session with all connected MCP servers
+	fmt.Println("\nConnected to Anthropic Claude via multi-server MCP!")
 	bot.Anthropic = chatbot.NewAnthropicClient(apiKey)
 	bot.ChatLoop(ctx)
 }

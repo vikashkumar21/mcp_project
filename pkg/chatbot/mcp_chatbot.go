@@ -12,10 +12,23 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// ServerConfig defines the command line execution configuration for an MCP server.
+type ServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+// ConfigFile represents the server_config.json configuration structure.
+type ConfigFile struct {
+	MCPServers map[string]ServerConfig `json:"mcpServers"`
+}
+
 // MCPChatBot represents an MCP-enabled chatbot that talks to an LLM
-// and invokes tools dynamically through an MCP Server session.
+// and routes tool invocations across multiple 1-to-1 MCP Server sessions.
 type MCPChatBot struct {
-	Session        *mcp.ClientSession
+	Sessions       []*mcp.ClientSession
+	ToolToSession  map[string]*mcp.ClientSession
 	Anthropic      *AnthropicClient
 	AvailableTools []Tool
 	Model          string
@@ -24,14 +37,23 @@ type MCPChatBot struct {
 // NewMCPChatBot initializes a new MCPChatBot.
 func NewMCPChatBot() *MCPChatBot {
 	return &MCPChatBot{
-		Anthropic: NewAnthropicClient(""),
-		Model:     DefaultModel,
+		Sessions:       make([]*mcp.ClientSession, 0),
+		ToolToSession:  make(map[string]*mcp.ClientSession),
+		AvailableTools: make([]Tool, 0),
+		Anthropic:      NewAnthropicClient(""),
+		Model:          DefaultModel,
 	}
 }
 
-// ConnectToServer launches the MCP server subprocess and connects over stdio.
-func (b *MCPChatBot) ConnectToServer(ctx context.Context, serverCommand string, serverArgs ...string) error {
-	cmd := exec.CommandContext(ctx, serverCommand, serverArgs...)
+// ConnectToServer connects to a single MCP server given its name and configuration.
+func (b *MCPChatBot) ConnectToServer(ctx context.Context, serverName string, cfg ServerConfig) error {
+	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+	if len(cfg.Env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range cfg.Env {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
 
 	transport := &mcp.CommandTransport{
 		Command: cmd,
@@ -44,20 +66,21 @@ func (b *MCPChatBot) ConnectToServer(ctx context.Context, serverCommand string, 
 
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return fmt.Errorf("failed to connect to MCP server: %w", err)
+		return fmt.Errorf("failed to connect to %s: %w", serverName, err)
 	}
-	b.Session = session
 
-	// Request list of available tools from the MCP server
 	resp, err := session.ListTools(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to list tools from MCP server: %w", err)
+		_ = session.Close()
+		return fmt.Errorf("failed to list tools from %s: %w", serverName, err)
 	}
 
+	b.Sessions = append(b.Sessions, session)
+
 	var toolNames []string
-	b.AvailableTools = make([]Tool, 0, len(resp.Tools))
 	for _, tool := range resp.Tools {
 		toolNames = append(toolNames, tool.Name)
+		b.ToolToSession[tool.Name] = session
 		b.AvailableTools = append(b.AvailableTools, Tool{
 			Name:        tool.Name,
 			Description: tool.Description,
@@ -65,12 +88,42 @@ func (b *MCPChatBot) ConnectToServer(ctx context.Context, serverCommand string, 
 		})
 	}
 
-	fmt.Println("\nConnected to server with tools:", toolNames)
+	fmt.Printf("\nConnected to %s with tools: %v\n", serverName, toolNames)
 	return nil
 }
 
+// ConnectToServers reads server_config.json and establishes 1-to-1 connections to each server.
+func (b *MCPChatBot) ConnectToServers(ctx context.Context, configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("error loading server configuration: %w", err)
+	}
+
+	var cfg ConfigFile
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("error parsing server configuration: %w", err)
+	}
+
+	for serverName, serverConfig := range cfg.MCPServers {
+		if err := b.ConnectToServer(ctx, serverName, serverConfig); err != nil {
+			fmt.Printf("Failed to connect to %s: %v\n", serverName, err)
+		}
+	}
+
+	return nil
+}
+
+// Cleanup closes all active MCP client sessions in reverse order.
+func (b *MCPChatBot) Cleanup() {
+	for i := len(b.Sessions) - 1; i >= 0; i-- {
+		if b.Sessions[i] != nil {
+			_ = b.Sessions[i].Close()
+		}
+	}
+}
+
 // ProcessQuery processes a single user query through the agentic tool loop,
-// delegating all tool calls to the MCP server session.
+// routing each tool call to its corresponding MCP server session.
 func (b *MCPChatBot) ProcessQuery(ctx context.Context, query string) error {
 	messages := []Message{
 		{Role: "user", Content: query},
@@ -107,22 +160,25 @@ func (b *MCPChatBot) ProcessQuery(ctx context.Context, query string) error {
 				toolName := content.Name
 				fmt.Printf("Calling tool %s with args %v\n", toolName, toolArgs)
 
-				// Invoke tool over MCP ClientSession
-				res, err := b.Session.CallTool(ctx, &mcp.CallToolParams{
-					Name:      toolName,
-					Arguments: toolArgs,
-				})
-
 				var resultText string
-				if err != nil {
-					resultText = fmt.Sprintf("Error calling tool via MCP: %v", err)
+				session, ok := b.ToolToSession[toolName]
+				if !ok {
+					resultText = fmt.Sprintf("Error: no MCP session registered for tool %q", toolName)
 				} else {
-					for _, item := range res.Content {
-						if tc, ok := item.(*mcp.TextContent); ok {
-							resultText += tc.Text
-						} else {
-							data, _ := json.Marshal(item)
-							resultText += string(data)
+					res, err := session.CallTool(ctx, &mcp.CallToolParams{
+						Name:      toolName,
+						Arguments: toolArgs,
+					})
+					if err != nil {
+						resultText = fmt.Sprintf("Error calling tool %s via MCP: %v", toolName, err)
+					} else {
+						for _, item := range res.Content {
+							if tc, ok := item.(*mcp.TextContent); ok {
+								resultText += tc.Text
+							} else {
+								data, _ := json.Marshal(item)
+								resultText += string(data)
+							}
 						}
 					}
 				}
@@ -183,23 +239,11 @@ func (b *MCPChatBot) ChatLoop(ctx context.Context) {
 	}
 }
 
-// ConnectToServerAndRun starts the server, connects, and enters the chat loop.
-func (b *MCPChatBot) ConnectToServerAndRun(ctx context.Context, serverCommand string, serverArgs ...string) error {
-	if err := b.ConnectToServer(ctx, serverCommand, serverArgs...); err != nil {
-		return err
-	}
-	defer b.Session.Close()
-
-	b.ChatLoop(ctx)
-	return nil
-}
-
-// SimulateQuery demonstrates the MCP chatbot end-to-end flow with a real MCP server session
-// without requiring an Anthropic API key.
+// SimulateQuery demonstrates multi-server MCP tool invocation without requiring an Anthropic API key.
 func (b *MCPChatBot) SimulateQuery(ctx context.Context, query string) error {
 	fmt.Printf("[MCP Simulation] User Query: %q\n", query)
 
-	// Step 1: Simulate Claude deciding to call search_papers
+	// Step 1: Simulate Claude calling search_papers (routed to research server)
 	fmt.Println("\nAssistant: I'll search arXiv for 2 papers on 'LLM interpretability'.")
 	toolName1 := "search_papers"
 	toolArgs1 := map[string]any{
@@ -208,8 +252,12 @@ func (b *MCPChatBot) SimulateQuery(ctx context.Context, query string) error {
 	}
 	fmt.Printf("Calling tool %s with args %v\n", toolName1, toolArgs1)
 
-	// Invoke search_papers over MCP
-	res1, err := b.Session.CallTool(ctx, &mcp.CallToolParams{
+	session1, ok := b.ToolToSession[toolName1]
+	if !ok {
+		return fmt.Errorf("no server session found for tool %q", toolName1)
+	}
+
+	res1, err := session1.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName1,
 		Arguments: toolArgs1,
 	})
@@ -230,14 +278,14 @@ func (b *MCPChatBot) SimulateQuery(ctx context.Context, query string) error {
 		return nil
 	}
 
-	// Parse first paper ID from JSON array or string
+	// Parse first paper ID
 	var paperIDs []string
 	if err := json.Unmarshal([]byte(output1), &paperIDs); err != nil || len(paperIDs) == 0 {
 		paperIDs = strings.Split(output1, ", ")
 	}
 	firstID := strings.Trim(paperIDs[0], " \"\n\r\t")
 
-	// Step 2: Simulate Claude receiving paper IDs and calling extract_info over MCP
+	// Step 2: Simulate Claude calling extract_info (routed to research server)
 	fmt.Printf("\nAssistant: Now retrieving detailed information for paper %s...\n", firstID)
 	toolName2 := "extract_info"
 	toolArgs2 := map[string]any{
@@ -245,7 +293,12 @@ func (b *MCPChatBot) SimulateQuery(ctx context.Context, query string) error {
 	}
 	fmt.Printf("Calling tool %s with args %v\n", toolName2, toolArgs2)
 
-	res2, err := b.Session.CallTool(ctx, &mcp.CallToolParams{
+	session2, ok := b.ToolToSession[toolName2]
+	if !ok {
+		return fmt.Errorf("no server session found for tool %q", toolName2)
+	}
+
+	res2, err := session2.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName2,
 		Arguments: toolArgs2,
 	})
