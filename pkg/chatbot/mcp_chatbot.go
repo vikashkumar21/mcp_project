@@ -25,7 +25,7 @@ type ConfigFile struct {
 }
 
 // MCPChatBot represents an MCP-enabled chatbot that talks to an LLM
-// and routes tool invocations across multiple 1-to-1 MCP Server sessions.
+// and routes tool, resource, and prompt invocations across multiple MCP Server sessions.
 type MCPChatBot struct {
 	Sessions       []*mcp.ClientSession
 	ToolToSession  map[string]*mcp.ClientSession
@@ -122,6 +122,79 @@ func (b *MCPChatBot) Cleanup() {
 	}
 }
 
+// GetResource queries connected MCP servers for a given URI (e.g. papers://folders).
+func (b *MCPChatBot) GetResource(ctx context.Context, uri string) (string, error) {
+	for _, session := range b.Sessions {
+		res, err := session.ReadResource(ctx, &mcp.ReadResourceParams{
+			URI: uri,
+		})
+		if err == nil && len(res.Contents) > 0 {
+			var sb strings.Builder
+			for _, content := range res.Contents {
+				sb.WriteString(content.Text)
+			}
+			return sb.String(), nil
+		}
+	}
+	return "", fmt.Errorf("resource %q not found on any connected server", uri)
+}
+
+// ListPrompts queries connected MCP servers and prints available prompt templates.
+func (b *MCPChatBot) ListPrompts(ctx context.Context) error {
+	fmt.Println("\nAvailable Prompts:")
+	foundAny := false
+
+	for _, session := range b.Sessions {
+		res, err := session.ListPrompts(ctx, nil)
+		if err != nil {
+			continue
+		}
+		for _, p := range res.Prompts {
+			foundAny = true
+			fmt.Printf("- %s: %s\n", p.Name, p.Description)
+			if len(p.Arguments) > 0 {
+				var argDescs []string
+				for _, arg := range p.Arguments {
+					req := ""
+					if arg.Required {
+						req = " (required)"
+					}
+					argDescs = append(argDescs, fmt.Sprintf("%s%s", arg.Name, req))
+				}
+				fmt.Printf("  Arguments: %s\n", strings.Join(argDescs, ", "))
+			}
+		}
+	}
+
+	if !foundAny {
+		fmt.Println("No prompts available.")
+	}
+	return nil
+}
+
+// ExecutePrompt fetches a prompt template from connected servers and executes it with the LLM.
+func (b *MCPChatBot) ExecutePrompt(ctx context.Context, promptName string, args map[string]string) error {
+	for _, session := range b.Sessions {
+		res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{
+			Name:      promptName,
+			Arguments: args,
+		})
+		if err == nil && len(res.Messages) > 0 {
+			var fullPrompt strings.Builder
+			for _, msg := range res.Messages {
+				if tc, ok := msg.Content.(*mcp.TextContent); ok {
+					fullPrompt.WriteString(tc.Text)
+					fullPrompt.WriteString("\n")
+				}
+			}
+			promptQuery := strings.TrimSpace(fullPrompt.String())
+			fmt.Printf("\n[Prompt Template Generated]:\n%s\n\n", promptQuery)
+			return b.ProcessQuery(ctx, promptQuery)
+		}
+	}
+	return fmt.Errorf("prompt %q not found on any connected server", promptName)
+}
+
 // ProcessQuery processes a single user query through the agentic tool loop,
 // routing each tool call to its corresponding MCP server session.
 func (b *MCPChatBot) ProcessQuery(ctx context.Context, query string) error {
@@ -130,7 +203,7 @@ func (b *MCPChatBot) ProcessQuery(ctx context.Context, query string) error {
 	}
 
 	const maxTurns = 10
-	for turn := 0; turn < maxTurns; turn++ {
+	for turn := range maxTurns {
 		response, err := b.Anthropic.CreateMessage(ctx, RequestPayload{
 			Model:     b.Model,
 			MaxTokens: 2024,
@@ -211,10 +284,11 @@ func (b *MCPChatBot) ProcessQuery(ctx context.Context, query string) error {
 	return fmt.Errorf("reached maximum turns (%d) without completing the request", maxTurns)
 }
 
-// ChatLoop runs the interactive chat session for the MCP chatbot.
+// ChatLoop runs the interactive chat session for the MCP chatbot supporting
+// slash commands (/prompts, /prompt <name>) and resource lookups (@folders, @<topic>).
 func (b *MCPChatBot) ChatLoop(ctx context.Context) {
 	fmt.Println("\nMCP Chatbot Started!")
-	fmt.Println("Type your queries or 'quit' to exit.")
+	fmt.Println("Type your queries, '@folders' / '@<topic>' for resources, '/prompts' or '/prompt <name>' for prompts, or 'quit' to exit.")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -232,16 +306,101 @@ func (b *MCPChatBot) ChatLoop(ctx context.Context) {
 			continue
 		}
 
-		if err := b.ProcessQuery(ctx, query); err != nil {
-			fmt.Printf("\nError: %v\n", err)
+		if after, ok := strings.CutPrefix(query, "@"); ok {
+			// Resource query: @folders or @<topic>
+			resourceName := after
+			uri := "papers://" + resourceName
+			content, err := b.GetResource(ctx, uri)
+			if err != nil {
+				fmt.Printf("Error fetching resource: %v\n", err)
+			} else {
+				fmt.Println(content)
+			}
+		} else if strings.EqualFold(query, "/prompts") {
+			// List available prompts
+			if err := b.ListPrompts(ctx); err != nil {
+				fmt.Printf("Error listing prompts: %v\n", err)
+			}
+		} else if after0, ok0 := strings.CutPrefix(query, "/prompt "); ok0 {
+			// Execute prompt template: /prompt <name> [arg1=val1 arg2=val2]
+			parts := strings.Fields(after0)
+			if len(parts) == 0 {
+				fmt.Println("Usage: /prompt <name> [arg1=val1 arg2=val2]")
+				continue
+			}
+			promptName := parts[0]
+			args := make(map[string]string)
+			for _, part := range parts[1:] {
+				kv := strings.SplitN(part, "=", 2)
+				if len(kv) == 2 {
+					args[kv[0]] = kv[1]
+				}
+			}
+			if err := b.ExecutePrompt(ctx, promptName, args); err != nil {
+				fmt.Printf("Error executing prompt: %v\n", err)
+			}
+		} else {
+			// Regular query processed by LLM
+			if err := b.ProcessQuery(ctx, query); err != nil {
+				fmt.Printf("\nError: %v\n", err)
+			}
 		}
 		fmt.Println()
 	}
 }
 
-// SimulateQuery demonstrates multi-server MCP tool invocation without requiring an Anthropic API key.
+// SimulateQuery demonstrates MCP Resources, Prompts, and Tools end-to-end without requiring an API key.
 func (b *MCPChatBot) SimulateQuery(ctx context.Context, query string) error {
-	fmt.Printf("[MCP Simulation] User Query: %q\n", query)
+	fmt.Println("=================================================================")
+	fmt.Println("1. DEMONSTRATING MCP RESOURCES (@folders & @<topic>)")
+	fmt.Println("=================================================================")
+	fmt.Println("User: @folders")
+	foldersRes, err := b.GetResource(ctx, "papers://folders")
+	if err != nil {
+		fmt.Printf("Error getting resource papers://folders: %v\n", err)
+	} else {
+		fmt.Print(foldersRes)
+	}
+
+	fmt.Println("\nUser: @llm_interpretability")
+	topicRes, err := b.GetResource(ctx, "papers://llm_interpretability")
+	if err != nil {
+		fmt.Printf("Error getting resource papers://llm_interpretability: %v\n", err)
+	} else {
+		// Print first 500 characters of resource output
+		if len(topicRes) > 600 {
+			fmt.Printf("%s\n... (truncated for display)\n", topicRes[:600])
+		} else {
+			fmt.Println(topicRes)
+		}
+	}
+
+	fmt.Println("\n=================================================================")
+	fmt.Println("2. DEMONSTRATING MCP PROMPTS (/prompts & /prompt <name>)")
+	fmt.Println("=================================================================")
+	fmt.Println("User: /prompts")
+	_ = b.ListPrompts(ctx)
+
+	fmt.Println("\nUser: /prompt generate_summary topic=llm_reasoning")
+	for _, session := range b.Sessions {
+		pRes, err := session.GetPrompt(ctx, &mcp.GetPromptParams{
+			Name: "generate_summary",
+			Arguments: map[string]string{
+				"topic": "llm_reasoning",
+			},
+		})
+		if err == nil && len(pRes.Messages) > 0 {
+			if tc, ok := pRes.Messages[0].Content.(*mcp.TextContent); ok {
+				fmt.Printf("\n[Prompt Generated from Server]:\n%s\n", tc.Text)
+			}
+			break
+		}
+	}
+
+	fmt.Println("\n=================================================================")
+	fmt.Println("3. DEMONSTRATING MCP TOOLS (search_papers & extract_info)")
+	fmt.Println("=================================================================")
+	fmt.Printf("[User Query]: %q\n", query)
 
 	// Step 1: Simulate Claude calling search_papers (routed to research server)
 	fmt.Println("\nAssistant: I'll search arXiv for 2 papers on 'LLM interpretability'.")

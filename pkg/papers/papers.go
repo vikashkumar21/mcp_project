@@ -14,7 +14,17 @@ import (
 	"time"
 )
 
-const PaperDir = "papers"
+var PaperDir = findPapersDir()
+
+func findPapersDir() string {
+	candidates := []string{"papers", "../papers", "../../papers"}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
+	}
+	return "papers"
+}
 
 // PaperInfo represents the metadata for a single arXiv paper.
 type PaperInfo struct {

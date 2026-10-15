@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"mcp_project/pkg/papers"
@@ -52,7 +53,7 @@ func ExtractInfoHandler(ctx context.Context, req *mcp.CallToolRequest, in Extrac
 	}, nil, nil
 }
 
-// NewResearchServer creates and configures an MCP server with research tools.
+// NewResearchServer creates and configures an MCP server with research tools, resources, and prompts.
 func NewResearchServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "research",
@@ -70,6 +71,80 @@ func NewResearchServer() *mcp.Server {
 		Name:        "extract_info",
 		Description: "Search for information about a specific paper across all topic directories.",
 	}, ExtractInfoHandler)
+
+	// Register Static Resource: papers://folders
+	server.AddResource(&mcp.Resource{
+		URI:         "papers://folders",
+		Name:        "available_folders",
+		Description: "List all available topic folders in the papers directory.",
+		MIMEType:    "text/markdown",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		content := papers.GetAvailableFolders()
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      req.Params.URI,
+					MIMEType: "text/markdown",
+					Text:     content,
+				},
+			},
+		}, nil
+	})
+
+	// Register Dynamic Resource Template: papers://{topic}
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "papers://{topic}",
+		Name:        "topic_papers",
+		Description: "Get detailed information about papers on a specific topic.",
+		MIMEType:    "text/markdown",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		topic := strings.TrimPrefix(req.Params.URI, "papers://")
+		content := papers.GetTopicPapers(topic)
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      req.Params.URI,
+					MIMEType: "text/markdown",
+					Text:     content,
+				},
+			},
+		}, nil
+	})
+
+	// Register Prompt: generate_summary
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "generate_summary",
+		Description: "Generate a comprehensive summary of research papers on a specific topic.",
+		Arguments: []*mcp.PromptArgument{
+			{
+				Name:        "topic",
+				Description: "The research topic to retrieve papers for and summarize",
+				Required:    true,
+			},
+		},
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		topic := ""
+		if req.Params != nil && req.Params.Arguments != nil {
+			topic = req.Params.Arguments["topic"]
+		}
+		if topic == "" {
+			topic = "artificial intelligence"
+		}
+
+		promptText := fmt.Sprintf("Please provide a thorough research summary and analysis of recent papers on the topic '%s'. Highlight key findings, methodologies, and open challenges. If needed, use tools to search for papers or extract paper details.", topic)
+
+		return &mcp.GetPromptResult{
+			Description: fmt.Sprintf("Summary prompt for %s", topic),
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: mcp.Role("user"),
+					Content: &mcp.TextContent{
+						Text: promptText,
+					},
+				},
+			},
+		}, nil
+	})
 
 	return server
 }

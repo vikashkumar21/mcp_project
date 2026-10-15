@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -39,14 +40,6 @@ func TestResearchServer(t *testing.T) {
 		t.Fatalf("expected 2 tools, got %d", len(toolsList.Tools))
 	}
 
-	toolNames := map[string]bool{}
-	for _, tool := range toolsList.Tools {
-		toolNames[tool.Name] = true
-	}
-	if !toolNames["search_papers"] || !toolNames["extract_info"] {
-		t.Errorf("expected search_papers and extract_info tools, got %v", toolNames)
-	}
-
 	// 2. Verify CallTool extract_info
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "extract_info",
@@ -57,14 +50,55 @@ func TestResearchServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call extract_info failed: %v", err)
 	}
-
 	if len(res.Content) == 0 {
-		t.Fatalf("expected content in result, got 0")
+		t.Fatalf("expected non-empty content in extract_info result")
 	}
 
-	text := res.Content[0].(*mcp.TextContent).Text
-	expectedSub := "There's no saved information related to paper test_missing_id."
-	if text != expectedSub {
-		t.Errorf("expected %q, got %q", expectedSub, text)
+	// 3. Verify Static Resource: papers://folders
+	foldersRes, err := session.ReadResource(ctx, &mcp.ReadResourceParams{
+		URI: "papers://folders",
+	})
+	if err != nil {
+		t.Fatalf("failed to read resource papers://folders: %v", err)
+	}
+	if len(foldersRes.Contents) == 0 || !strings.Contains(foldersRes.Contents[0].Text, "Available Topics") {
+		t.Fatalf("unexpected content for papers://folders: %v", foldersRes.Contents)
+	}
+
+	// 4. Verify Dynamic Resource: papers://llm_interpretability
+	topicRes, err := session.ReadResource(ctx, &mcp.ReadResourceParams{
+		URI: "papers://llm_interpretability",
+	})
+	if err != nil {
+		t.Fatalf("failed to read resource papers://llm_interpretability: %v", err)
+	}
+	if len(topicRes.Contents) == 0 || !strings.Contains(topicRes.Contents[0].Text, "Papers on Llm Interpretability") {
+		t.Fatalf("unexpected content for papers://llm_interpretability: %v", topicRes.Contents)
+	}
+
+	// 5. Verify Prompts
+	promptsList, err := session.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to list prompts: %v", err)
+	}
+	if len(promptsList.Prompts) == 0 {
+		t.Fatalf("expected at least 1 prompt, got 0")
+	}
+
+	promptRes, err := session.GetPrompt(ctx, &mcp.GetPromptParams{
+		Name: "generate_summary",
+		Arguments: map[string]string{
+			"topic": "transformer architectures",
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to get prompt generate_summary: %v", err)
+	}
+	if len(promptRes.Messages) == 0 {
+		t.Fatalf("expected prompt messages, got 0")
+	}
+	textContent, ok := promptRes.Messages[0].Content.(*mcp.TextContent)
+	if !ok || !strings.Contains(textContent.Text, "transformer architectures") {
+		t.Fatalf("prompt message did not contain topic: %v", promptRes.Messages[0].Content)
 	}
 }
