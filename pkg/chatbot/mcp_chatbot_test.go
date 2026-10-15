@@ -184,3 +184,84 @@ func TestMCPChatBotMultiServerRouting(t *testing.T) {
 		t.Errorf("expected 2 turns, got %d", callCount)
 	}
 }
+
+func TestMCPChatBotConnectToRemoteStreamableServer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 1. Create a remote MCP server using StreamableHTTPHandler
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "remote-streamable-server",
+		Version: "v0.1.0",
+	}, nil)
+
+	type PingInput struct {
+		Payload string `json:"payload" jsonschema:"payload to ping"`
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "remote_ping",
+		Description: "Pings the remote server",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in PingInput) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "PONG: " + in.Payload},
+			},
+		}, nil, nil
+	})
+
+	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return server
+	}, &mcp.StreamableHTTPOptions{
+		Stateless:                  false,
+		DisableLocalhostProtection: true,
+	})
+
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", handler)
+	mux.Handle("/mcp/", handler)
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// 2. Connect MCPChatBot to remote server using URL and streamable-http transport
+	bot := NewMCPChatBot()
+	defer bot.Cleanup()
+
+	err := bot.ConnectToServer(ctx, "remote_streamable", ServerConfig{
+		URL:       ts.URL + "/mcp",
+		Transport: "streamable-http",
+	})
+	if err != nil {
+		t.Fatalf("failed to connect to remote Streamable HTTP server: %v", err)
+	}
+
+	// 3. Verify tool discovery and session mapping
+	if len(bot.AvailableTools) != 1 || bot.AvailableTools[0].Name != "remote_ping" {
+		t.Fatalf("expected remote_ping tool, got %v", bot.AvailableTools)
+	}
+
+	session, ok := bot.ToolToSession["remote_ping"]
+	if !ok {
+		t.Fatalf("remote_ping tool not mapped to any session")
+	}
+
+	// 4. Verify tool execution over Streamable HTTP
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "remote_ping",
+		Arguments: map[string]any{
+			"payload": "hello-streamable",
+		},
+	})
+	if err != nil {
+		t.Fatalf("remote tool call failed: %v", err)
+	}
+
+	if len(res.Content) == 0 {
+		t.Fatalf("expected tool response content")
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok || tc.Text != "PONG: hello-streamable" {
+		t.Errorf("unexpected content: %v", res.Content[0])
+	}
+}

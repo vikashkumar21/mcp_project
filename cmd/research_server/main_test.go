@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"mcp_project/pkg/research"
 )
 
 func TestResearchServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	server := NewResearchServer()
+	server := research.NewServer()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
 	go func() {

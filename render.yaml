@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mcp-research-server
+    runtime: go
+    buildCommand: go build -o remote_server ./cmd/remote_server
+    startCommand: ./remote_server
+    envVars:
+      - key: PORT
+        value: 10000
+    healthCheckPath: /health

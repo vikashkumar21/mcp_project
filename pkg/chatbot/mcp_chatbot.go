@@ -12,11 +12,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// ServerConfig defines the command line execution configuration for an MCP server.
+// ServerConfig defines the execution or network configuration for an MCP server.
 type ServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
+	// For local stdio processes:
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+
+	// For remote HTTP servers:
+	URL       string `json:"url,omitempty"`
+	Transport string `json:"transport,omitempty"` // "streamable-http" (default if URL given) or "sse"
 }
 
 // ConfigFile represents the server_config.json configuration structure.
@@ -46,17 +51,34 @@ func NewMCPChatBot() *MCPChatBot {
 }
 
 // ConnectToServer connects to a single MCP server given its name and configuration.
+// It supports both local processes (stdio) and remote endpoints (Streamable HTTP / SSE).
 func (b *MCPChatBot) ConnectToServer(ctx context.Context, serverName string, cfg ServerConfig) error {
-	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	if len(cfg.Env) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range cfg.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
+	var transport mcp.Transport
 
-	transport := &mcp.CommandTransport{
-		Command: cmd,
+	if cfg.URL != "" {
+		if strings.EqualFold(cfg.Transport, "sse") {
+			transport = &mcp.SSEClientTransport{
+				Endpoint: cfg.URL,
+			}
+		} else {
+			// Streamable HTTP is the modern MCP standard
+			transport = &mcp.StreamableClientTransport{
+				Endpoint: cfg.URL,
+			}
+		}
+	} else if cfg.Command != "" {
+		cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+		if len(cfg.Env) > 0 {
+			cmd.Env = os.Environ()
+			for k, v := range cfg.Env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
+		}
+		transport = &mcp.CommandTransport{
+			Command: cmd,
+		}
+	} else {
+		return fmt.Errorf("server %q must configure either 'command' or 'url'", serverName)
 	}
 
 	client := mcp.NewClient(&mcp.Implementation{
